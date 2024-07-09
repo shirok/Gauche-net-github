@@ -11,6 +11,7 @@
   (export <github>
           grok-repository-url
           get-repository
+          get-repository-content
           ))
 (select-module net.github)
 
@@ -24,16 +25,22 @@
 
 
 ;; internal utilities
-(define (%get/json github path)
+(define (%get github path accept-type)
   (receive (code hdrs body)
       (apply http-get *api-endpoint* path
-             :accept "application/vnd.github+json"
+             :accept accept-type
              :x-github-api-version *api-version*
              (cond-list
               [(~ github'pat) @ `(:authorization ,#"Bearer ~(~ github'pat)")]))
     (unless (equal? code "200")
       (errorf "github api error: ~a: ~a" code body))
-    (parse-json-string body)))
+    body))
+
+(define (%get/json github path)
+  (parse-json-string (%get github path "application/vnd.github+json")))
+
+(define (%get/raw github path)
+  (%get github path "application/vnd.github.raw+json"))
 
 ;; Returns owner and repository-name.
 ;; Repository-url : https://github.com/OWNER/REPO[.git]
@@ -46,5 +53,13 @@
       [_ (error "URL is not a github repository url:" repository-url)])))
 
 ;; Accessing Git repo
-(define (get-repository github repository-owner repository-name)
-  (%get/json github (build-path "/repos" repository-owner repository-name)))
+(define (get-repository github owner name)
+  (%get/json github (build-path "/repos" owner name)))
+
+;; Obtaining raw file
+(define (get-repository-content github owner name path :optional (ref #f))
+  (let1 fullpath (build-path "/repos" owner name "contents" path)
+    (%get/raw github
+              (if ref
+                #"~|fullpath|?ref=~(uri-encode-string ref)"
+                fullpath))))
